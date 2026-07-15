@@ -4,20 +4,72 @@ export interface Track {
   artist: string;
   youtubeId: string;
   bpm: number;
-  duration: string;
+  coverUrl: string;
 }
 
 export const playlist: Track[] = [
-  { id: "1", title: "Snowman", artist: "WYS", youtubeId: "G7hEBFvBdDk", bpm: 85, duration: "2:14" },
-  { id: "2", title: "Coffee", artist: "Beabadoobee", youtubeId: "m8GndmN5lpU", bpm: 90, duration: "3:28" },
-  { id: "3", title: "Affection", artist: "Jinsang", youtubeId: "CjB_oVeq8Lo", bpm: 82, duration: "2:45" },
-  { id: "4", title: "Still Corners", artist: "Lo-Fi", youtubeId: "8KmN6jvWZoY", bpm: 78, duration: "3:10" },
-  { id: "5", title: "Luv Letter", artist: "DJ Okawari", youtubeId: "k9YFpM2d8bU", bpm: 88, duration: "4:56" },
-  { id: "6", title: "Feather", artist: "Nujabes", youtubeId: "wqTkM1pSvOo", bpm: 92, duration: "4:07" },
-  { id: "7", title: "Aruarian Dance", artist: "Nujabes", youtubeId: "sVgV3BrBe1Y", bpm: 86, duration: "4:12" },
-  { id: "8", title: "Koto", artist: "Clovis Reyes", youtubeId: "2B1Aujbq3ZM", bpm: 80, duration: "2:30" },
-  { id: "9", title: "Peachy", artist: "Morimoto", youtubeId: "AZfFpN8dFnk", bpm: 75, duration: "2:55" },
-  { id: "10", title: "Jazz in Paris", artist: "Media Right", youtubeId: "DqMmEIxqHeo", bpm: 95, duration: "3:15" },
-  { id: "11", title: "Chill Day", artist: "LAKEY", youtubeId: "EsyFNDs8mLc", bpm: 84, duration: "2:40" },
-  { id: "12", title: "Colors", artist: "Tobu", youtubeId: "2Vv-BfVoq4g", bpm: 128, duration: "4:41" },
+  {
+    id: "1",
+    title: "lofi hip hop radio",
+    artist: "Lofi Girl",
+    youtubeId: "jfKfPfyJRdk",
+    bpm: 85,
+    coverUrl: "https://i.ytimg.com/vi/jfKfPfyJRdk/hqdefault.jpg",
+  },
+  {
+    id: "2",
+    title: "lofi hip hop radio - beats to relax",
+    artist: "Lofi Girl",
+    youtubeId: "5qap5aO4i9A",
+    bpm: 80,
+    coverUrl: "https://i.ytimg.com/vi/5qap5aO4i9A/hqdefault.jpg",
+  },
+  {
+    id: "3",
+    title: "synthwave radio - beats to chill",
+    artist: "Lofi Girl",
+    youtubeId: "4xDzrJKXOOY",
+    bpm: 90,
+    coverUrl: "https://i.ytimg.com/vi/4xDzrJKXOOY/hqdefault.jpg",
+  },
+  {
+    id: "4",
+    title: "lofi hip hop mix - Part 1",
+    artist: "Lofi Girl",
+    youtubeId: "CFGLoQIhmow",
+    bpm: 82,
+    coverUrl: "https://i.ytimg.com/vi/CFGLoQIhmow/hqdefault.jpg",
+  },
+  {
+    id: "5",
+    title: "Best of lofi 2024",
+    artist: "Lofi Girl",
+    youtubeId: "lA9FONoiuFA",
+    bpm: 88,
+    coverUrl: "https://i.ytimg.com/vi/lA9FONoiuFA/hqdefault.jpg",
+  },
+  {
+    id: "6",
+    title: "Chill Drive - Aesthetic Music",
+    artist: "chilli music",
+    youtubeId: "iicfmXFALM8",
+    bpm: 84,
+    coverUrl: "https://i.ytimg.com/vi/iicfmXFALM8/hqdefault.jpg",
+  },
+  {
+    id: "7",
+    title: "jazz lofi radio - beats to chill",
+    artist: "Lofi Girl",
+    youtubeId: "E2vONfzoyRI",
+    bpm: 78,
+    coverUrl: "https://i.ytimg.com/vi/E2vONfzoyRI/hqdefault.jpg",
+  },
+  {
+    id: "8",
+    title: "Chill Summer Lofi",
+    artist: "Settle",
+    youtubeId: "kyqpSycLASY",
+    bpm: 86,
+    coverUrl: "https://i.ytimg.com/vi/kyqpSycLASY/hqdefault.jpg",
+  },
 ];
