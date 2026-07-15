@@ -10,174 +10,81 @@ import {
   VolumeX,
   Music,
   X,
-  ExternalLink,
-  Search,
   ChevronLeft,
 } from "lucide-react";
 import { useCursorState } from "@/components/cursor/CursorProvider";
 import { audioState } from "@/lib/audioState";
+import { musicGenerator, type TrackPreset } from "@/lib/MusicGenerator";
 import { playlist, type Track } from "@/config/music";
-
-declare global {
-  interface Window {
-    YT: {
-      Player: new (
-        id: string,
-        opts: Record<string, unknown>
-      ) => {
-        playVideo: () => void;
-        pauseVideo: () => void;
-        seekTo: (s: number, allowSeekAhead: boolean) => void;
-        getCurrentTime: () => number;
-        getDuration: () => number;
-        getPlayerState: () => number;
-        setVolume: (v: number) => void;
-        getVolume: () => number;
-        loadVideoById: (id: string | { videoId: string }) => void;
-        destroy: () => void;
-        addEventListener: (event: string, fn: (e: { data: number }) => void) => void;
-      };
-    };
-    onYouTubeIframeAPIReady: () => void;
-  }
-}
-
-interface SearchResult {
-  id: string;
-  title: string;
-  channel: string;
-  thumbnail: string;
-}
 
 export function MusicPlayer() {
   const [isOpen, setIsOpen] = useState(false);
   const [currentTrack, setCurrentTrack] = useState<Track>(playlist[0]);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [progress, setProgress] = useState(0);
-  const [duration, setDuration] = useState(0);
-  const [volume, setVolume] = useState(80);
+  const [volume, setVolume] = useState(70);
   const [isMuted, setIsMuted] = useState(false);
   const [trackIndex, setTrackIndex] = useState(0);
   const [showPlaylist, setShowPlaylist] = useState(false);
-  const [showSearch, setShowSearch] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
-  const [isSearching, setIsSearching] = useState(false);
-  const [playerReady, setPlayerReady] = useState(false);
-  const [loadError, setLoadError] = useState(false);
-  const playerRef = useRef<InstanceType<Window["YT"]["Player"]> | null>(null);
+  const [showPresets, setShowPresets] = useState(false);
+  const [elapsed, setElapsed] = useState(0);
   const cursorHandlers = useCursorState("button");
-  const searchTimeout = useRef<ReturnType<typeof setTimeout>>(null);
-  const initRef = useRef(false);
+  const startTimeRef = useRef(0);
+  const animFrameRef = useRef<number>(0);
+  const [initialized, setInitialized] = useState(false);
 
-  // Load YouTube IFrame API
+  // Initialize on first user interaction
+  const ensureInit = useCallback(async () => {
+    if (!initialized) {
+      await musicGenerator.init();
+      setInitialized(true);
+    }
+  }, [initialized]);
+
+  // Track elapsed time
   useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    // If already loaded
-    if (window.YT && window.YT.Player) {
-      initPlayer();
+    if (!isPlaying) {
+      cancelAnimationFrame(animFrameRef.current);
       return;
     }
-
-    // Load the API script
-    const tag = document.createElement("script");
-    tag.src = "https://www.youtube.com/iframe_api";
-    tag.onerror = () => {
-      console.error("Failed to load YouTube IFrame API");
-      setLoadError(true);
+    const tick = () => {
+      setElapsed((Date.now() - startTimeRef.current) / 1000);
+      animFrameRef.current = requestAnimationFrame(tick);
     };
-    document.head.appendChild(tag);
+    animFrameRef.current = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(animFrameRef.current);
+  }, [isPlaying]);
 
-    window.onYouTubeIframeAPIReady = () => {
-      initPlayer();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  function initPlayer() {
-    if (initRef.current) return;
-    initRef.current = true;
-
-    const playerDiv = document.getElementById("yt-player-container");
-    if (!playerDiv) {
-      console.error("yt-player-container not found");
-      return;
-    }
-
-    try {
-      const player = new window.YT.Player("yt-player-container", {
-        videoId: playlist[0].youtubeId,
-        playerVars: {
-          autoplay: 0,
-          controls: 0,
-          disablekb: 1,
-          fs: 0,
-          iv_load_policy: 3,
-          modestbranding: 1,
-          rel: 0,
-          showinfo: 0,
-          enablejsapi: 1,
-          origin: window.location.origin,
-        },
-        events: {
-          onReady: () => {
-            console.log("YouTube player ready");
-            setPlayerReady(true);
-            player.setVolume(80);
-          },
-          onStateChange: (e: { data: number }) => {
-            if (e.data === 1) {
-              setIsPlaying(true);
-              audioState.update({ isPlaying: true });
-            } else if (e.data === 2) {
-              setIsPlaying(false);
-              audioState.update({ isPlaying: false });
-            } else if (e.data === 0) {
-              setIsPlaying(false);
-              audioState.update({ isPlaying: false });
-              nextTrack();
-            }
-          },
-          onError: (e: { data: number }) => {
-            console.error("YouTube player error:", e.data);
-          },
-        },
-      });
-
-      playerRef.current = player;
-    } catch (err) {
-      console.error("Failed to create YT.Player:", err);
-    }
-  }
-
-  // Progress tracking
+  // Sync audioState with generator
   useEffect(() => {
     const interval = setInterval(() => {
-      const p = playerRef.current;
-      if (!p || !p.getCurrentTime) return;
-      try {
-        const cur = p.getCurrentTime();
-        const dur = p.getDuration();
-        if (dur > 0) {
-          setProgress(cur);
-          setDuration(dur);
+      if (musicGenerator.getIsPlaying()) {
+        const analyser = musicGenerator.getAnalyser();
+        if (analyser) {
+          const data = new Uint8Array(analyser.frequencyBinCount);
+          analyser.getByteFrequencyData(data);
+          const bass = (data[2] + data[3] + data[4]) / (3 * 255);
+          const mid = (data[10] + data[15] + data[20]) / (3 * 255);
+          const treble = (data[40] + data[50] + data[60]) / (3 * 255);
+          const energy = (bass + mid + treble) / 3;
+          audioState.update({ bass, mid, treble, energy });
         }
-      } catch {}
-    }, 500);
+      }
+    }, 50);
     return () => clearInterval(interval);
   }, []);
 
-  const playTrack = useCallback((track: Track, index: number) => {
-    setCurrentTrack(track);
-    setTrackIndex(index);
-    audioState.update({ bpm: track.bpm });
-
-    const p = playerRef.current;
-    if (p && p.loadVideoById) {
-      p.loadVideoById({ videoId: track.youtubeId });
-    }
-  }, []);
+  const playTrack = useCallback(
+    async (track: Track, index: number) => {
+      await ensureInit();
+      setCurrentTrack(track);
+      setTrackIndex(index);
+      audioState.update({ bpm: track.bpm, isPlaying: true });
+      await musicGenerator.play(track.preset);
+      startTimeRef.current = Date.now();
+      setIsPlaying(true);
+    },
+    [ensureInit]
+  );
 
   const nextTrack = useCallback(() => {
     const next = (trackIndex + 1) % playlist.length;
@@ -189,123 +96,39 @@ export function MusicPlayer() {
     playTrack(playlist[prev], prev);
   }, [trackIndex, playTrack]);
 
-  const togglePlay = useCallback(() => {
-    const p = playerRef.current;
-    if (!p) return;
+  const togglePlay = useCallback(async () => {
+    await ensureInit();
     if (isPlaying) {
-      p.pauseVideo();
+      musicGenerator.stop(0.5);
+      setIsPlaying(false);
+      audioState.update({ isPlaying: false, bass: 0, mid: 0, treble: 0, energy: 0 });
     } else {
-      p.playVideo();
+      await musicGenerator.play(currentTrack.preset);
+      startTimeRef.current = Date.now() - elapsed * 1000;
+      setIsPlaying(true);
+      audioState.update({ isPlaying: true, bpm: currentTrack.bpm });
     }
-  }, [isPlaying]);
-
-  const handleSeek = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const time = parseFloat(e.target.value);
-    playerRef.current?.seekTo(time, true);
-    setProgress(time);
-  }, []);
+  }, [isPlaying, currentTrack, elapsed, ensureInit]);
 
   const handleVolume = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const vol = parseInt(e.target.value);
       setVolume(vol);
       setIsMuted(vol === 0);
-      playerRef.current?.setVolume(vol);
+      musicGenerator.setVolume(vol / 100);
     },
     []
   );
 
   const toggleMute = useCallback(() => {
-    const p = playerRef.current;
-    if (!p) return;
     if (isMuted) {
-      p.setVolume(volume || 80);
+      musicGenerator.setVolume(volume / 100);
       setIsMuted(false);
     } else {
-      p.setVolume(0);
+      musicGenerator.setVolume(0);
       setIsMuted(true);
     }
   }, [isMuted, volume]);
-
-  const playSearchResult = useCallback(
-    (result: SearchResult) => {
-      const track: Track = {
-        id: result.id,
-        title: result.title,
-        artist: result.channel,
-        youtubeId: result.id,
-        bpm: 85,
-        coverUrl: result.thumbnail,
-      };
-      setCurrentTrack(track);
-      audioState.update({ isPlaying: true, bpm: 85 });
-
-      const p = playerRef.current;
-      if (p && p.loadVideoById) {
-        p.loadVideoById({ videoId: result.id });
-      }
-
-      setShowSearch(false);
-      setSearchQuery("");
-      setSearchResults([]);
-    },
-    []
-  );
-
-  // YouTube search via Invidious
-  const searchYouTube = useCallback(async (query: string) => {
-    if (!query.trim()) {
-      setSearchResults([]);
-      return;
-    }
-    setIsSearching(true);
-    try {
-      const instances = [
-        "https://inv.nadeko.net",
-        "https://invidious.nerdvpn.de",
-        "https://vid.puffyan.us",
-      ];
-      for (const instance of instances) {
-        try {
-          const res = await fetch(
-            `${instance}/api/v1/search?q=${encodeURIComponent(query)}&type=video&sort_by=relevance`,
-            { signal: AbortSignal.timeout(5000) }
-          );
-          if (res.ok) {
-            const data = await res.json();
-            const results: SearchResult[] = data
-              .filter((v: { type: string }) => v.type === "video")
-              .slice(0, 8)
-              .map((v: { videoId: string; title: string; author: string; videoThumbnails?: { url: string }[] }) => ({
-                id: v.videoId,
-                title: v.title,
-                channel: v.author,
-                thumbnail: v.videoThumbnails?.[0]?.url || `https://i.ytimg.com/vi/${v.videoId}/mqdefault.jpg`,
-              }));
-            setSearchResults(results);
-            setIsSearching(false);
-            return;
-          }
-        } catch {
-          continue;
-        }
-      }
-      setSearchResults([]);
-    } catch {
-      setSearchResults([]);
-    } finally {
-      setIsSearching(false);
-    }
-  }, []);
-
-  const handleSearchChange = useCallback(
-    (value: string) => {
-      setSearchQuery(value);
-      if (searchTimeout.current) clearTimeout(searchTimeout.current);
-      searchTimeout.current = setTimeout(() => searchYouTube(value), 400);
-    },
-    [searchYouTube]
-  );
 
   const formatTime = (s: number) => {
     const m = Math.floor(s / 60);
@@ -334,26 +157,8 @@ export function MusicPlayer() {
     return () => clearInterval(id);
   }, [isPlaying]);
 
-  const progressPercent = duration > 0 ? (progress / duration) * 100 : 0;
-
   return (
     <>
-      {/* YouTube IFrame API script loaded via useEffect */}
-
-      {/* Hidden YouTube player — must be 200x200 minimum, in viewport */}
-      <div
-        className="fixed bottom-0 left-0 pointer-events-none"
-        style={{
-          width: 200,
-          height: 200,
-          opacity: 0,
-          zIndex: -1,
-          overflow: "hidden",
-        }}
-      >
-        <div id="yt-player-container" />
-      </div>
-
       {/* Toggle button */}
       <button
         onClick={() => setIsOpen(!isOpen)}
@@ -390,9 +195,9 @@ export function MusicPlayer() {
         <div className="glass-panel rounded-3xl shadow-2xl shadow-black/40">
           {/* Header */}
           <div className="flex items-center justify-between px-5 pt-4 pb-2">
-            {showSearch ? (
+            {showPresets ? (
               <button
-                onClick={() => { setShowSearch(false); setSearchQuery(""); setSearchResults([]); }}
+                onClick={() => setShowPresets(false)}
                 {...cursorHandlers}
                 className="p-1.5 rounded-xl text-white/40 hover:text-white hover:bg-white/10 transition-all"
               >
@@ -402,46 +207,47 @@ export function MusicPlayer() {
               <div className="flex items-center gap-2">
                 <div className={`w-1.5 h-1.5 rounded-full ${isPlaying ? "bg-green-400 animate-pulse" : "bg-white/30"}`} />
                 <span className="text-[10px] font-medium text-white/40 uppercase tracking-[0.2em]">
-                  {!playerReady ? "Loading..." : isPlaying ? "Playing" : "Paused"}
+                  {!initialized ? "Click to start" : isPlaying ? "Playing" : "Paused"}
                 </span>
               </div>
             )}
             <div className="flex items-center gap-1">
-              {!showSearch && (
+              {!showPresets && (
                 <>
-                  <button onClick={() => window.open(`https://youtube.com/watch?v=${currentTrack.youtubeId}`, "_blank")} {...cursorHandlers} className="p-2 rounded-xl text-white/30 hover:text-white hover:bg-white/10 transition-all" aria-label="Open on YouTube">
-                    <ExternalLink className="h-3.5 w-3.5" />
+                  <button onClick={() => setShowPresets(!showPresets)} {...cursorHandlers} className={`p-2 rounded-xl transition-all ${showPresets ? "text-brand bg-brand/10" : "text-white/30 hover:text-white hover:bg-white/10"}`} aria-label="Sound presets">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v2m0 18v2M4.22 4.22l1.42 1.42m12.72 12.72 1.42 1.42M1 12h2m18 0h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
                   </button>
                   <button onClick={() => setShowPlaylist(!showPlaylist)} {...cursorHandlers} className={`p-2 rounded-xl transition-all ${showPlaylist ? "text-brand bg-brand/10" : "text-white/30 hover:text-white hover:bg-white/10"}`} aria-label="Toggle playlist">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="8" y1="6" x2="21" y2="6" /><line x1="8" y1="12" x2="21" y2="12" /><line x1="8" y1="18" x2="21" y2="18" /><line x1="3" y1="6" x2="3.01" y2="6" /><line x1="3" y1="12" x2="3.01" y2="12" /><line x1="3" y1="18" x2="3.01" y2="18" /></svg>
-                  </button>
-                  <button onClick={() => setShowSearch(true)} {...cursorHandlers} className="p-2 rounded-xl text-white/30 hover:text-white hover:bg-white/10 transition-all" aria-label="Search YouTube">
-                    <Search className="h-3.5 w-3.5" />
                   </button>
                 </>
               )}
             </div>
           </div>
 
-          {/* Search */}
-          {showSearch ? (
+          {/* Presets */}
+          {showPresets ? (
             <div className="px-5 pb-5 fade-in-up">
-              <div className="relative mb-4">
-                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-white/30" />
-                <input type="text" value={searchQuery} onChange={(e) => handleSearchChange(e.target.value)} placeholder="Search any song..." className="w-full h-11 pl-10 pr-4 rounded-2xl bg-white/5 border border-white/10 text-sm text-white placeholder:text-white/20 focus:outline-none focus:border-brand/50 focus:bg-white/[0.07] transition-all" autoFocus />
-                {isSearching && <div className="absolute right-3.5 top-1/2 -translate-y-1/2"><div className="w-4 h-4 border-2 border-brand border-t-transparent rounded-full animate-spin" /></div>}
-              </div>
-              <div className="max-h-72 overflow-y-auto space-y-1">
-                {searchResults.length > 0 ? searchResults.map((result) => (
-                  <button key={result.id} onClick={() => playSearchResult(result)} {...cursorHandlers} className="w-full flex items-center gap-3 p-2.5 rounded-2xl text-left hover:bg-white/5 transition-all group">
-                    <div className="w-11 h-11 rounded-xl overflow-hidden flex-shrink-0 bg-white/5"><img src={result.thumbnail} alt={result.title} className="w-full h-full object-cover" loading="lazy" /></div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-medium text-white/80 truncate group-hover:text-brand transition-colors">{result.title}</p>
-                      <p className="text-[10px] text-white/30 truncate">{result.channel}</p>
+              <p className="text-xs text-white/30 mb-3 uppercase tracking-wider">Sound Presets</p>
+              <div className="space-y-2">
+                {playlist.map((track, i) => (
+                  <button key={track.id} onClick={() => { playTrack(track, i); setShowPresets(false); }} {...cursorHandlers} className={`w-full flex items-center gap-3 p-3 rounded-2xl text-left transition-all group ${currentTrack.id === track.id && isPlaying ? "bg-brand/10 border border-brand/20" : "hover:bg-white/5 border border-transparent"}`}>
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${currentTrack.id === track.id && isPlaying ? "bg-brand/20" : "bg-white/5"}`}>
+                      {currentTrack.id === track.id && isPlaying ? (
+                        <div className="flex items-end gap-[2px] h-4">
+                          {[0, 1, 2].map((b) => (<div key={b} className="w-[2px] bg-brand rounded-full wave-bar" style={{ animationDelay: `${b * 0.15}s` }} />))}
+                        </div>
+                      ) : (
+                        <Music className="h-4 w-4 text-white/30" />
+                      )}
                     </div>
-                    <Play className="h-3.5 w-3.5 text-white/20 opacity-0 group-hover:opacity-100 transition-opacity" />
+                    <div className="flex-1 min-w-0">
+                      <p className={`text-xs font-medium truncate ${currentTrack.id === track.id && isPlaying ? "text-brand" : "text-white/70"}`}>{track.title}</p>
+                      <p className="text-[10px] text-white/25 truncate">{track.description}</p>
+                    </div>
+                    <span className="text-[10px] text-white/15 font-mono">{track.bpm}bpm</span>
                   </button>
-                )) : searchQuery && !isSearching ? <div className="text-center py-8"><p className="text-xs text-white/30">No results</p></div> : !searchQuery ? <div className="text-center py-8"><Search className="h-8 w-8 mx-auto text-white/10 mb-2" /><p className="text-xs text-white/20">Search YouTube for any song</p></div> : null}
+                ))}
               </div>
             </div>
           ) : (
@@ -451,7 +257,9 @@ export function MusicPlayer() {
                 <div className="relative w-40 h-40 mb-4">
                   <div className={`absolute inset-0 rounded-full ring-rotate ${!isPlaying && "vinyl-spin-paused"}`} style={{ background: "conic-gradient(from 0deg, var(--brand), #818CF8, #C084FC, var(--brand))" }} />
                   <div className={`absolute inset-[3px] rounded-full bg-[#0a0a0a] flex items-center justify-center vinyl-spin ${!isPlaying && "vinyl-spin-paused"}`}>
-                    <img src={currentTrack.coverUrl} alt={currentTrack.title} className="w-[85%] h-[85%] rounded-full object-cover opacity-90" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                    <div className="w-[85%] h-[85%] rounded-full bg-gradient-to-br from-brand/20 to-purple-500/20 flex items-center justify-center">
+                      <Music className="h-12 w-12 text-white/20" />
+                    </div>
                     <div className="absolute w-4 h-4 rounded-full bg-[#1a1a1a] border-2 border-white/10" />
                     <div className="absolute inset-[15%] rounded-full border border-white/[0.03]" />
                     <div className="absolute inset-[25%] rounded-full border border-white/[0.03]" />
@@ -473,15 +281,14 @@ export function MusicPlayer() {
                   </div>
                   <p className="text-[11px] text-white/30 mt-0.5">{currentTrack.artist}</p>
                 </div>
+                {/* Elapsed time */}
                 <div className="w-full px-1">
-                  <div className="relative w-full h-1.5 bg-white/[0.06] rounded-full overflow-hidden group cursor-pointer">
-                    <div className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-brand to-purple-400 transition-all duration-100" style={{ width: `${progressPercent}%` }} />
-                    <input type="range" min={0} max={duration || 1} step={0.1} value={progress} onChange={handleSeek} className="absolute inset-0 w-full opacity-0 cursor-pointer" />
-                    <div className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full shadow-lg opacity-0 group-hover:opacity-100 transition-opacity" style={{ left: `calc(${progressPercent}% - 6px)` }} />
+                  <div className="w-full h-1.5 bg-white/[0.06] rounded-full overflow-hidden">
+                    <div className="h-full rounded-full bg-gradient-to-r from-brand to-purple-400 transition-all duration-1000" style={{ width: isPlaying ? "100%" : "0%", animation: isPlaying ? `shimmer 3s ease-in-out infinite` : "none" }} />
                   </div>
                   <div className="flex justify-between mt-1.5">
-                    <span className="text-[10px] text-white/20 font-mono">{formatTime(progress)}</span>
-                    <span className="text-[10px] text-white/20 font-mono">{formatTime(duration)}</span>
+                    <span className="text-[10px] text-white/20 font-mono">{formatTime(elapsed)}</span>
+                    <span className="text-[10px] text-white/20 font-mono">generative</span>
                   </div>
                 </div>
               </div>
@@ -511,18 +318,20 @@ export function MusicPlayer() {
                 <div className="border-t border-white/[0.04] max-h-56 overflow-y-auto fade-in-up">
                   {playlist.map((track, i) => (
                     <button key={track.id} onClick={() => playTrack(track, i)} {...cursorHandlers} className={`w-full flex items-center gap-3 px-5 py-3 text-left transition-all hover:bg-white/[0.03] ${currentTrack.id === track.id ? "bg-brand/[0.06]" : ""}`}>
-                      <div className="w-9 h-9 rounded-lg overflow-hidden flex-shrink-0 bg-white/5">
-                        <img src={track.coverUrl} alt={track.title} className="w-full h-full object-cover" loading="lazy" />
+                      <div className={`w-9 h-9 rounded-lg overflow-hidden flex-shrink-0 flex items-center justify-center ${currentTrack.id === track.id && isPlaying ? "bg-brand/20" : "bg-white/5"}`}>
+                        {currentTrack.id === track.id && isPlaying ? (
+                          <div className="flex items-end gap-[2px] h-3">
+                            {[0, 1, 2].map((b) => (<div key={b} className="w-[2px] bg-brand rounded-full wave-bar" style={{ animationDelay: `${b * 0.15}s` }} />))}
+                          </div>
+                        ) : (
+                          <Music className="h-4 w-4 text-white/30" />
+                        )}
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className={`text-xs font-medium truncate ${currentTrack.id === track.id ? "text-brand" : "text-white/60"}`}>{track.title}</p>
-                        <p className="text-[10px] text-white/20 truncate">{track.artist}</p>
+                        <p className="text-[10px] text-white/20 truncate">{track.description}</p>
                       </div>
-                      {currentTrack.id === track.id && isPlaying && (
-                        <div className="flex items-end gap-[2px] h-3">
-                          {[0, 1, 2].map((b) => (<div key={b} className="w-[2px] bg-brand rounded-full wave-bar" style={{ animationDelay: `${b * 0.15}s` }} />))}
-                        </div>
-                      )}
+                      <span className="text-[10px] text-white/15 font-mono">{track.bpm}bpm</span>
                     </button>
                   ))}
                 </div>
