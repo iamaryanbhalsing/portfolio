@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { useCursorState } from "@/components/cursor/CursorProvider";
 import { audioState } from "@/lib/audioState";
-import { playlist, type Track } from "@/config/music";
+import { playlist } from "@/config/music";
 
 interface YTPlayer {
   playVideo(): void;
@@ -36,76 +36,117 @@ declare global {
 
 let ytApiLoaded = false;
 let ytApiLoading = false;
+let ytApiPromise: Promise<void> | null = null;
 
 function loadYouTubeAPI(): Promise<void> {
-  return new Promise((resolve) => {
-    if (ytApiLoaded) {
-      resolve();
-      return;
-    }
-    if (ytApiLoading) {
-      const check = setInterval(() => {
-        if (ytApiLoaded) {
-          clearInterval(check);
-          resolve();
-        }
-      }, 100);
-      return;
-    }
-    ytApiLoading = true;
+  if (ytApiLoaded) return Promise.resolve();
+  if (ytApiPromise) return ytApiPromise;
+
+  ytApiPromise = new Promise<void>((resolve) => {
+    if (ytApiLoaded) { resolve(); return; }
+
     const tag = document.createElement("script");
     tag.src = "https://www.youtube.com/iframe_api";
     document.head.appendChild(tag);
+
     window.onYouTubeIframeAPIReady = () => {
       ytApiLoaded = true;
       resolve();
     };
+
+    // Fallback: poll in case onYouTubeIframeAPIReady never fires
+    const fallback = setInterval(() => {
+      if (ytApiLoaded) {
+        clearInterval(fallback);
+        resolve();
+      }
+    }, 200);
+
+    // Timeout after 10s
+    setTimeout(() => {
+      clearInterval(fallback);
+      resolve();
+    }, 10000);
   });
+
+  return ytApiPromise;
 }
 
 export function MusicPlayer() {
   const [isOpen, setIsOpen] = useState(false);
-  const [currentTrack] = useState<Track>(playlist[0]);
   const [isPlaying, setIsPlaying] = useState(false);
   const [volume, setVolume] = useState(70);
   const [isMuted, setIsMuted] = useState(false);
   const [elapsed, setElapsed] = useState(0);
+  const [playerReady, setPlayerReady] = useState(false);
   const cursorHandlers = useCursorState("button");
   const animFrameRef = useRef<number>(0);
   const ytPlayerRef = useRef<YTPlayer | null>(null);
-  const ytContainerRef = useRef<HTMLDivElement>(null);
+  const pendingPlayRef = useRef(false);
+  const track = playlist[0];
 
+  // Initialize YouTube player
   useEffect(() => {
+    let cancelled = false;
+
     loadYouTubeAPI().then(() => {
-      if (!ytContainerRef.current || ytPlayerRef.current) return;
+      if (cancelled || ytPlayerRef.current) return;
       if (!window.YT?.Player) return;
-      ytPlayerRef.current = new window.YT.Player("yt-player", {
-        height: "0",
-        width: "0",
-        videoId: playlist[0].videoId || "",
-        playerVars: {
-          autoplay: 0,
-          controls: 0,
-          disablekb: 1,
-          fs: 0,
-          iv_load_policy: 3,
-          modestbranding: 1,
-          rel: 0,
-          showinfo: 0,
-        },
-        events: {
-          onReady: () => {},
-          onStateChange: (e: { data: number }) => {
-            if (e.data === 0) {
-              setIsPlaying(false);
-              audioState.update({ isPlaying: false, bass: 0, mid: 0, treble: 0, energy: 0 });
-            }
+
+      // Wait for the DOM element to exist
+      const createPlayer = () => {
+        const el = document.getElementById("yt-player");
+        if (!el) {
+          setTimeout(createPlayer, 100);
+          return;
+        }
+
+        ytPlayerRef.current = new window.YT!.Player("yt-player", {
+          height: "0",
+          width: "0",
+          videoId: track.videoId || "",
+          playerVars: {
+            autoplay: 0,
+            controls: 0,
+            disablekb: 1,
+            fs: 0,
+            iv_load_policy: 3,
+            modestbranding: 1,
+            rel: 0,
+            showinfo: 0,
           },
-        },
-      });
+          events: {
+            onReady: () => {
+              if (!cancelled) {
+                setPlayerReady(true);
+                // If a play was requested before player was ready, play now
+                if (pendingPlayRef.current) {
+                  pendingPlayRef.current = false;
+                  ytPlayerRef.current?.loadVideoById(track.videoId || "");
+                  ytPlayerRef.current?.setVolume(isMuted ? 0 : volume);
+                  setIsPlaying(true);
+                  audioState.update({ isPlaying: true, bpm: track.bpm });
+                }
+              }
+            },
+            onStateChange: (e: { data: number }) => {
+              if (e.data === 0) {
+                // Video ended
+                setIsPlaying(false);
+                audioState.update({ isPlaying: false, bass: 0, mid: 0, treble: 0, energy: 0 });
+              }
+            },
+          },
+        });
+      };
+
+      createPlayer();
     });
+
+    return () => { cancelled = true; };
   }, []);
 
+  // Track elapsed time
   useEffect(() => {
     if (!isPlaying) {
       cancelAnimationFrame(animFrameRef.current);
@@ -125,30 +166,24 @@ export function MusicPlayer() {
     return () => cancelAnimationFrame(animFrameRef.current);
   }, [isPlaying]);
 
-  const playTrack = useCallback(async () => {
-    if (ytPlayerRef.current) {
-      ytPlayerRef.current.loadVideoById(currentTrack.videoId || "");
-      ytPlayerRef.current.setVolume(isMuted ? 0 : volume);
-    }
-    audioState.update({ isPlaying: true, bpm: currentTrack.bpm });
-    setIsPlaying(true);
-  }, [currentTrack, volume, isMuted]);
-
   const togglePlay = useCallback(async () => {
+    if (!ytPlayerRef.current || !playerReady) {
+      // Player not ready yet, queue the play
+      pendingPlayRef.current = true;
+      return;
+    }
+
     if (isPlaying) {
-      if (ytPlayerRef.current) {
-        ytPlayerRef.current.pauseVideo();
-      }
+      ytPlayerRef.current.pauseVideo();
       setIsPlaying(false);
       audioState.update({ isPlaying: false, bass: 0, mid: 0, treble: 0, energy: 0 });
     } else {
-      if (ytPlayerRef.current) {
-        ytPlayerRef.current.playVideo();
-      }
+      ytPlayerRef.current.loadVideoById(track.videoId || "");
+      ytPlayerRef.current.setVolume(isMuted ? 0 : volume);
       setIsPlaying(true);
-      audioState.update({ isPlaying: true, bpm: currentTrack.bpm });
+      audioState.update({ isPlaying: true, bpm: track.bpm });
     }
-  }, [isPlaying, currentTrack]);
+  }, [isPlaying, track, volume, isMuted, playerReady]);
 
   const handleVolume = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -185,6 +220,7 @@ export function MusicPlayer() {
     return `${m}:${sec.toString().padStart(2, "0")}`;
   };
 
+  // Visualizer bars
   const [bars, setBars] = useState<number[]>(new Array(24).fill(0));
 
   useEffect(() => {
@@ -206,14 +242,12 @@ export function MusicPlayer() {
 
   return (
     <>
-      <div
-        ref={ytContainerRef}
-        className="fixed opacity-0 pointer-events-none"
-        style={{ width: 0, height: 0 }}
-      >
+      {/* Hidden YouTube container */}
+      <div className="fixed opacity-0 pointer-events-none" style={{ width: 0, height: 0 }}>
         <div id="yt-player" />
       </div>
 
+      {/* Toggle button */}
       <button
         onClick={() => setIsOpen(!isOpen)}
         {...cursorHandlers}
@@ -238,6 +272,7 @@ export function MusicPlayer() {
         )}
       </button>
 
+      {/* Player panel */}
       <div
         className={`fixed bottom-24 left-6 z-50 w-80 rounded-3xl overflow-hidden transition-all duration-500 ${
           isOpen
@@ -246,6 +281,7 @@ export function MusicPlayer() {
         }`}
       >
         <div className="glass-panel rounded-3xl shadow-2xl shadow-black/40">
+          {/* Header */}
           <div className="flex items-center justify-between px-5 pt-4 pb-2">
             <div className="flex items-center gap-2">
               <div className={`w-1.5 h-1.5 rounded-full ${isPlaying ? "bg-green-400 animate-pulse" : "bg-white/30"}`} />
@@ -255,6 +291,7 @@ export function MusicPlayer() {
             </div>
           </div>
 
+          {/* Album Art + Visualizer */}
           <div className="flex flex-col items-center px-5 pt-2 pb-3">
             <div className="relative w-40 h-40 mb-4">
               <div
@@ -305,13 +342,14 @@ export function MusicPlayer() {
             <div className="w-full text-center mb-3">
               <div className="marquee-container">
                 <h3 className="text-sm font-semibold text-white/90 marquee-text">
-                  {currentTrack.title}
-                  <span className="mx-8 text-white/20">•</span>
-                  {currentTrack.title}
+                  {track.title}
+                  <span className="mx-8 text-white/20">&bull;</span>
+                  {track.title}
                 </h3>
               </div>
-              <p className="text-[11px] text-white/30 mt-0.5">{currentTrack.artist}</p>
+              <p className="text-[11px] text-white/30 mt-0.5">{track.artist}</p>
             </div>
+            {/* Elapsed time */}
             <div className="w-full px-1">
               <div className="w-full h-1.5 bg-white/[0.06] rounded-full overflow-hidden">
                 <div
@@ -329,6 +367,7 @@ export function MusicPlayer() {
             </div>
           </div>
 
+          {/* Controls */}
           <div className="flex items-center justify-center gap-6 px-5 py-2">
             <button
               onClick={togglePlay}
@@ -340,6 +379,7 @@ export function MusicPlayer() {
             </button>
           </div>
 
+          {/* Volume */}
           <div className="flex items-center gap-3 px-6 pb-5 pt-1">
             <button
               onClick={toggleMute}
