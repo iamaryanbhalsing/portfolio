@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { audioState } from "@/lib/audioState";
 
 export function AnimatedMesh() {
   const svgRef = useRef<SVGSVGElement>(null);
@@ -35,13 +34,9 @@ export function AnimatedMesh() {
       const svg = svgRef.current;
       if (!svg) return;
 
-      const { bass, mid, treble, energy } = audioState;
-      const speedMultiplier = 1 + mid * 0.8;
-      const radiusMultiplier = 1 + bass * 1.2;
-
       nodes.forEach((node) => {
-        node.x += node.vx * speedMultiplier;
-        node.y += node.vy * speedMultiplier;
+        node.x += node.vx;
+        node.y += node.vy;
 
         if (node.x < 0 || node.x > 100) node.vx *= -1;
         if (node.y < 0 || node.y > 100) node.vy *= -1;
@@ -62,14 +57,12 @@ export function AnimatedMesh() {
         if (nodes[i]) {
           circle.setAttribute("cx", `${nodes[i].x}%`);
           circle.setAttribute("cy", `${nodes[i].y}%`);
-          const r = nodes[i].baseR * radiusMultiplier;
-          circle.setAttribute("r", `${r}`);
-          circle.setAttribute("opacity", `${0.3 + energy * 0.5}`);
+          circle.setAttribute("r", `${nodes[i].baseR}`);
+          circle.setAttribute("opacity", "0.3");
         }
       });
 
       let lineIdx = 0;
-      const lineOpacityBoost = 1 + treble * 1.5;
       for (let i = 0; i < nodes.length; i++) {
         for (let j = i + 1; j < nodes.length; j++) {
           const dx = nodes[i].x - nodes[j].x;
@@ -77,8 +70,7 @@ export function AnimatedMesh() {
           const dist = Math.sqrt(dx * dx + dy * dy);
 
           if (lines[lineIdx]) {
-            const baseOpacity = dist < 25 ? (1 - dist / 25) * 0.3 : 0;
-            const opacity = baseOpacity * lineOpacityBoost;
+            const opacity = dist < 25 ? (1 - dist / 25) * 0.3 : 0;
             lines[lineIdx].setAttribute("opacity", `${Math.min(opacity, 0.8)}`);
             lines[lineIdx].setAttribute("x1", `${nodes[i].x}%`);
             lines[lineIdx].setAttribute("y1", `${nodes[i].y}%`);
