@@ -20,14 +20,6 @@ export const playlist: Track[] = [
     description: "80s-inspired synthwave hit",
     videoId: "4NRXx6U8AB0",
   },
-  ...PRESETS.map((p) => ({
-    id: p.id,
-    title: p.name,
-    artist: p.artist,
-    bpm: p.bpm,
-    description: p.description,
-    preset: p,
-  })),
 ];
 
 export const defaultTrack = playlist[0];
