@@ -270,6 +270,40 @@
   opacity: 0;
 }
 
+/* Music player slider */
+.music-player-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border);
+  outline: none;
+}
+
+.music-player-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--brand);
+  cursor: pointer;
+  transition: transform 0.15s ease;
+}
+
+.music-player-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+}
+
+.music-player-slider::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--brand);
+  cursor: pointer;
+  border: none;
+}
+
 /* Reveal animations */
 .reveal {
   opacity: 0;

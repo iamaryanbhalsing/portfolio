@@ -8,6 +8,7 @@ import { CustomCursor } from "@/components/cursor/CustomCursor";
 import { CursorSpotlight } from "@/components/cursor/CursorSpotlight";
 import { ThemeProvider } from "@/components/ui/ThemeProvider";
 import { ServiceWorkerRegistration } from "@/components/ui/ServiceWorkerRegistration";
+import { MusicPlayer } from "@/components/ui/MusicPlayer";
 
 const inter = Inter({
   variable: "--font-inter",
@@ -117,6 +118,7 @@ export default function RootLayout({
             <CursorProvider>
               <CustomCursor />
               <CursorSpotlight />
+              <MusicPlayer />
               {children}
             </CursorProvider>
           </LenisProvider>
