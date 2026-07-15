@@ -18,7 +18,7 @@ export const playlist: Track[] = [
     artist: "The Weeknd",
     bpm: 171,
     description: "80s-inspired synthwave hit",
-    videoId: "4NRXx6U8AB0",
+    videoId: "q6e_b0NERCA",
   },
 ];
 

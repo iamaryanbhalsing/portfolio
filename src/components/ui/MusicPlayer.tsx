@@ -242,8 +242,19 @@ export function MusicPlayer() {
 
   return (
     <>
-      {/* Hidden YouTube container */}
-      <div className="fixed opacity-0 pointer-events-none" style={{ width: 0, height: 0 }}>
+      {/* Hidden YouTube container - needs real dimensions for YT API */}
+      <div
+        className="fixed pointer-events-none"
+        style={{
+          position: "fixed",
+          left: "-9999px",
+          top: "-9999px",
+          width: "200px",
+          height: "200px",
+          opacity: 0,
+          zIndex: -1,
+        }}
+      >
         <div id="yt-player" />
       </div>
 
