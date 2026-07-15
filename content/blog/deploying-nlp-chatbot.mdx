@@ -1,0 +1,58 @@
+---
+title: "Deploying an NLP Chatbot on Render with Flask"
+date: "2024-01-20"
+description: "Building and deploying a FAQ chatbot using Flask, NLTK, and cosine similarity — from localhost to production."
+tags: ["Python", "Flask", "NLP", "Deployment"]
+---
+
+## What I Built
+
+A simple but effective FAQ chatbot that understands natural language questions and returns the most relevant answer from a knowledge base. No APIs, no cloud AI services — just pure Python NLP.
+
+## The NLP Pipeline
+
+1. **Tokenization** — Break user input into words using NLTK
+2. **Vectorization** — Convert tokens to TF-IDF vectors
+3. **Similarity** — Compute cosine similarity against all FAQ entries
+4. **Response** — Return the best match above a threshold
+
+```python
+from nltk.tokenize import word_tokenize
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+
+def get_response(user_input, faq_data):
+    tokens = word_tokenize(user_input.lower())
+    processed = " ".join(tokens)
+    
+    all_texts = [processed] + [item["question"] for item in faq_data]
+    tfidf = TfidfVectorizer()
+    vectors = tfidf.fit_transform(all_texts)
+    
+    similarities = cosine_similarity(vectors[0:1], vectors[1:])
+    best_idx = similarities.argmax()
+    
+    if similarities[0][best_idx] > 0.3:
+        return faq_data[best_idx]["answer"]
+    return "Sorry, I don't understand that question."
+```
+
+## Deployment on Render
+
+Render makes deployment straightforward:
+
+1. Connect your GitHub repo
+2. Set build command: `pip install -r requirements.txt`
+3. Set start command: `gunicorn app:app`
+4. Done!
+
+The free tier spins down after inactivity, so the first request after idle takes ~30 seconds. For production, you'd want a paid plan.
+
+## Future Improvements
+
+- Add conversation context (multi-turn dialogue)
+- Train on custom data with Word2Vec embeddings
+- Add a web admin panel for managing FAQ entries
+
+Live demo: [faq-chatbot.onrender.com](https://faq-chatbot.onrender.com)
+Source: [GitHub](https://github.com/iamaryanbhalsing/faq-chatbot)

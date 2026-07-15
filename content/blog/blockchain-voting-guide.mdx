@@ -1,0 +1,51 @@
+---
+title: "Getting Started with Blockchain Voting using Solidity"
+date: "2024-02-10"
+description: "A practical guide to building a decentralized voting application on Ethereum with smart contracts."
+tags: ["Solidity", "Ethereum", "Node.js", "Web3"]
+---
+
+## Why Blockchain Voting?
+
+Traditional voting systems have a trust problem. How do you know your vote was counted correctly? Blockchain provides transparency and immutability — once a vote is recorded, it can't be changed or deleted.
+
+## Architecture
+
+My UniVote system has three layers:
+
+1. **Smart Contract** — Solidity contract on Ethereum Sepolia testnet
+2. **Backend** — Node.js + Express API with MongoDB for user data
+3. **Frontend** — React app with Web3.js integration
+
+## The Smart Contract
+
+```solidity
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+contract Voting {
+    mapping(string => uint256) public voteCounts;
+    mapping(address => bool) public hasVoted;
+    
+    event VoteCast(address voter, string candidate);
+    
+    function vote(string memory candidate) public {
+        require(!hasVoted[msg.sender], "Already voted");
+        voteCounts[candidate]++;
+        hasVoted[msg.sender] = true;
+        emit VoteCast(msg.sender, candidate);
+    }
+}
+```
+
+## Key Learnings
+
+- **Gas fees** — Even on testnet, transaction costs matter. I optimized the contract to minimize storage operations.
+- **Security** — Smart contracts are immutable once deployed. Thorough testing is critical.
+- **UX** — Web3 wallets are confusing for non-technical users. I added clear error messages and a step-by-step voting flow.
+
+## Demo
+
+The app is deployed on Sepolia testnet. You can try it with a MetaMask wallet connected to the Sepolia network.
+
+Source code: [GitHub](https://github.com/iamaryanbhalsing/blockchain-based-voting)

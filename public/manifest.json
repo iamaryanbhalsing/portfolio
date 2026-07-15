@@ -1,0 +1,9 @@
+{
+  "name": "Aryan Bhalsing — Portfolio",
+  "short_name": "Aryan B",
+  "description": "Full-Stack Developer & AI Enthusiast — Building clean, scalable web applications and intelligent systems.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0B1120",
+  "theme_color": "#38BDF8"
+}

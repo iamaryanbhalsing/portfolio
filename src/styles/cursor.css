@@ -1,0 +1,93 @@
+/* ===== CUSTOM CURSOR SYSTEM ===== */
+
+/* Hide default cursor on devices with accurate pointing */
+@media (pointer: fine) {
+  * {
+    cursor: none !important;
+  }
+}
+
+/* Cursor dot */
+.cursor-dot {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 99999;
+  will-change: transform;
+  transition: scale 0.3s cubic-bezier(0.23, 1, 0.32, 1),
+              background 0.3s ease,
+              box-shadow 0.3s ease;
+}
+
+/* Cursor ring */
+.cursor-ring {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 36px;
+  height: 36px;
+  border: 1.5px solid rgba(255, 255, 255, 0.4);
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 99998;
+  will-change: transform;
+  transition: scale 0.4s cubic-bezier(0.23, 1, 0.32, 1),
+              border-color 0.3s ease,
+              box-shadow 0.3s ease;
+}
+
+/* Cursor trail */
+.cursor-trail {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 99997;
+  will-change: transform;
+}
+
+/* Spotlight overlay */
+.cursor-spotlight {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background: radial-gradient(
+    600px circle at var(--spotlight-x, 50%) var(--spotlight-y, 50%),
+    rgba(255, 255, 255, 0.04),
+    transparent 40%
+  );
+}
+
+/* Hide custom cursor on touch devices */
+@media (pointer: coarse), (pointer: none) {
+  .cursor-dot,
+  .cursor-ring,
+  .cursor-trail,
+  .cursor-spotlight {
+    display: none !important;
+  }
+}
+
+/* Reduced motion: disable trailing but keep dot */
+@media (prefers-reduced-motion: reduce) {
+  .cursor-dot,
+  .cursor-ring {
+    transition: none !important;
+  }
+
+  .cursor-trail {
+    display: none !important;
+  }
+
+  .cursor-spotlight {
+    display: none !important;
+  }
+}

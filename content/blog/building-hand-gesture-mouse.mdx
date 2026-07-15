@@ -1,0 +1,62 @@
+---
+title: "Building a Hand Gesture Virtual Mouse with Python"
+date: "2024-03-15"
+description: "How I built a real-time hand gesture recognition system that controls your laptop cursor using just your hand."
+tags: ["Python", "MediaPipe", "OpenCV", "Computer Vision"]
+---
+
+## The Idea
+
+What if you could control your computer with just your hand? No mouse, no touchpad — just gestures in front of your webcam. That's exactly what I set out to build.
+
+## Tech Stack
+
+- **Python** — Core language
+- **MediaPipe** — Google's hand landmark detection
+- **OpenCV** — Webcam capture and image processing
+- **PyAutoGUI** — System-level cursor control
+
+## How It Works
+
+The system uses MediaPipe's hand tracking to detect 21 landmarks on your hand in real-time. By analyzing the relative positions of these landmarks, we can determine:
+
+1. **Cursor position** — Index finger tip coordinates map to screen coordinates
+2. **Click** — Thumb and index finger pinch triggers a mouse click
+3. **Drag** — Holding the pinch while moving performs a drag
+
+```python
+import mediapipe as mp
+import cv2
+import pyautogui
+
+mp_hands = mp.solutions.hands
+hands = mp_hands.Hands(max_num_hands=1)
+
+cap = cv2.VideoCapture(0)
+while cap.isOpened():
+    ret, frame = cap.read()
+    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    results = hands.process(rgb)
+    
+    if results.multi_hand_landmarks:
+        landmarks = results.multi_hand_landmarks[0]
+        index_tip = landmarks.landmark[8]
+        # Map to screen coordinates and move cursor
+```
+
+## Challenges
+
+The biggest challenge was latency. MediaPipe processes at ~30fps, but PyAutoGUI's `moveTo()` has its own overhead. I solved this by:
+
+- Reducing the capture resolution to 320x240
+- Using a smoothing algorithm on the landmark coordinates
+- Running cursor movement in a separate thread
+
+## Results
+
+The final system achieves:
+- **30 FPS** hand tracking
+- **< 50ms** cursor response time
+- Works in various lighting conditions
+
+Check out the [GitHub repo](https://github.com/iamaryanbhalsing/Hand-Gesture-Virtual-Mouse) for the full source code.
