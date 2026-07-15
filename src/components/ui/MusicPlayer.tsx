@@ -18,38 +18,19 @@ import { useCursorState } from "@/components/cursor/CursorProvider";
 import { audioState } from "@/lib/audioState";
 import { playlist, type Track } from "@/config/music";
 
-declare global {
-  interface Window {
-    YT: {
-      Player: new (
-        id: string,
-        opts: Record<string, unknown>
-      ) => {
-        playVideo: () => void;
-        pauseVideo: () => void;
-        seekTo: (s: number, allow: boolean) => void;
-        getCurrentTime: () => number;
-        getDuration: () => number;
-        getPlayerState: () => number;
-        setVolume: (v: number) => void;
-        getVolume: () => number;
-        loadVideoById: (id: string) => void;
-        destroy: () => void;
-        addEventListener: (e: string, fn: () => void) => void;
-      };
-    };
-    onYouTubeIframeAPIReady: () => void;
-  }
-}
-
-const YT_STATE_PLAYING = 1;
-const YT_STATE_ENDED = 0;
-
 interface SearchResult {
   id: string;
   title: string;
   channel: string;
   thumbnail: string;
+}
+
+// YouTube postMessage control
+function ytCommand(iframe: HTMLIFrameElement, command: string, args?: unknown) {
+  iframe.contentWindow?.postMessage(
+    JSON.stringify({ event: "command", func: command, args: args || [] }),
+    "*"
+  );
 }
 
 export function MusicPlayer() {
@@ -66,138 +47,113 @@ export function MusicPlayer() {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
-  const [apiReady, setApiReady] = useState(false);
-  const [isBuffering, setIsBuffering] = useState(false);
-  const playerRef = useRef<InstanceType<Window["YT"]["Player"]> | null>(null);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
   const cursorHandlers = useCursorState("button");
   const progressInterval = useRef<ReturnType<typeof setInterval>>(null);
   const searchTimeout = useRef<ReturnType<typeof setTimeout>>(null);
+  const readyRef = useRef(false);
 
-  // Load YouTube IFrame API
+  // Listen for YouTube ready event
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (window.YT && window.YT.Player) {
-      setApiReady(true);
-      return;
+    function onMessage(e: MessageEvent) {
+      try {
+        const data = JSON.parse(e.data);
+        if (data.event === "onReady") {
+          readyRef.current = true;
+          // Set initial volume
+          const iframe = iframeRef.current;
+          if (iframe) {
+            ytCommand(iframe, "setVolume", [80]);
+            ytCommand(iframe, "unMute");
+          }
+        }
+        if (data.event === "onStateChange") {
+          // -1 = unstarted, 0 = ended, 1 = playing, 2 = paused, 3 = buffering, 5 = queued
+          const state = data.info;
+          if (state === 1) {
+            setIsPlaying(true);
+            audioState.update({ isPlaying: true });
+          } else if (state === 2 || state === 0) {
+            setIsPlaying(false);
+            audioState.update({ isPlaying: false });
+          }
+          if (state === 0) {
+            // Video ended → next track
+            nextTrack();
+          }
+        }
+        if (data.event === "infoDelivery") {
+          // Progress updates
+          if (data.info && typeof data.info.currentTime === "number") {
+            setProgress(data.info.currentTime);
+          }
+          if (data.info && typeof data.info.duration === "number") {
+            setDuration(data.info.duration);
+          }
+        }
+      } catch {
+        // Not JSON
+      }
     }
 
-    const tag = document.createElement("script");
-    tag.src = "https://www.youtube.com/iframe_api";
-    document.head.appendChild(tag);
-
-    window.onYouTubeIframeAPIReady = () => setApiReady(true);
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
   }, []);
 
-  // Create player — 200x200 minimum (YouTube requirement)
-  useEffect(() => {
-    if (!apiReady || playerRef.current) return;
-
-    try {
-      const player = new window.YT.Player("yt-player", {
-        videoId: playlist[0].youtubeId,
-        width: 200,
-        height: 200,
-        playerVars: {
-          autoplay: 0,
-          controls: 0,
-          disablekb: 1,
-          fs: 0,
-          iv_load_policy: 3,
-          modestbranding: 1,
-          rel: 0,
-          showinfo: 0,
-          enablejsapi: 1,
-          origin: window.location.origin,
-        },
-        events: {
-          onReady: () => {
-            player.setVolume(80);
-          },
-          onStateChange: (e: { data: number }) => {
-            const playing = e.data === YT_STATE_PLAYING;
-            setIsPlaying(playing);
-            setIsBuffering(false);
-            audioState.update({ isPlaying: playing });
-
-            if (e.data === YT_STATE_ENDED) {
-              nextTrack();
-            }
-          },
-          onBuffering: () => setIsBuffering(true),
-          onError: (e: { data: number }) => {
-            console.warn("YouTube error:", e.data);
-            setIsBuffering(false);
-          },
-        },
-      });
-
-      playerRef.current = player;
-
-      // Set referrerpolicy on the YouTube iframe (required for embeds to work)
-      setTimeout(() => {
-        const iframe = document.querySelector('#yt-player iframe') as HTMLIFrameElement;
-        if (iframe) {
-          iframe.setAttribute("referrerpolicy", "strict-origin-when-cross-origin");
-        }
-      }, 2000);
-    } catch (err) {
-      console.error("Failed to create YouTube player:", err);
-    }
-  }, [apiReady]);
-
-  // Progress tracking
+  // Progress polling — YouTube only sends infoDelivery when player is visible,
+  // so we poll via getCurrentTime command
   useEffect(() => {
     progressInterval.current = setInterval(() => {
-      const player = playerRef.current;
-      if (!player || !player.getCurrentTime) return;
-      try {
-        const cur = player.getCurrentTime();
-        const dur = player.getDuration();
-        if (dur > 0) {
-          setProgress(cur);
-          setDuration(dur);
-        }
-      } catch {}
-    }, 250);
+      const iframe = iframeRef.current;
+      if (!iframe || !readyRef.current) return;
+      ytCommand(iframe, "getCurrentTime");
+      ytCommand(iframe, "getDuration");
+    }, 500);
+
     return () => {
       if (progressInterval.current) clearInterval(progressInterval.current);
     };
   }, []);
 
-  const playTrack = useCallback((track: Track, index: number) => {
-    setCurrentTrack(track);
-    setTrackIndex(index);
-    setIsBuffering(true);
-    audioState.update({ bpm: track.bpm });
+  const loadAndPlay = useCallback((youtubeId: string) => {
+    const iframe = iframeRef.current;
+    if (!iframe || !readyRef.current) return;
 
-    const player = playerRef.current;
-    if (player && player.loadVideoById) {
-      player.loadVideoById(track.youtubeId);
-    }
+    // Load new video by changing iframe src
+    iframe.src = `https://www.youtube.com/embed/${youtubeId}?enablejsapi=1&autoplay=1&controls=0&disablekb=1&fs=0&iv_load_policy=3&modestbranding=1&rel=0&showinfo=0&origin=${window.location.origin}`;
+    setIsPlaying(true);
+    audioState.update({ isPlaying: true });
   }, []);
 
-  const playSearchResult = useCallback((result: SearchResult) => {
-    const track: Track = {
-      id: result.id,
-      title: result.title,
-      artist: result.channel,
-      youtubeId: result.id,
-      bpm: 85,
-      coverUrl: result.thumbnail,
-    };
-    setCurrentTrack(track);
-    setIsBuffering(true);
-    audioState.update({ isPlaying: true, bpm: 85 });
+  const playTrack = useCallback(
+    (track: Track, index: number) => {
+      setCurrentTrack(track);
+      setTrackIndex(index);
+      audioState.update({ bpm: track.bpm });
+      loadAndPlay(track.youtubeId);
+    },
+    [loadAndPlay]
+  );
 
-    const player = playerRef.current;
-    if (player && player.loadVideoById) {
-      player.loadVideoById(result.id);
-    }
-
-    setShowSearch(false);
-    setSearchQuery("");
-    setSearchResults([]);
-  }, []);
+  const playSearchResult = useCallback(
+    (result: SearchResult) => {
+      const track: Track = {
+        id: result.id,
+        title: result.title,
+        artist: result.channel,
+        youtubeId: result.id,
+        bpm: 85,
+        coverUrl: result.thumbnail,
+      };
+      setCurrentTrack(track);
+      audioState.update({ isPlaying: true, bpm: 85 });
+      loadAndPlay(result.id);
+      setShowSearch(false);
+      setSearchQuery("");
+      setSearchResults([]);
+    },
+    [loadAndPlay]
+  );
 
   const nextTrack = useCallback(() => {
     const next = (trackIndex + 1) % playlist.length;
@@ -210,39 +166,52 @@ export function MusicPlayer() {
   }, [trackIndex, playTrack]);
 
   const togglePlay = useCallback(() => {
-    const player = playerRef.current;
-    if (!player) return;
+    const iframe = iframeRef.current;
+    if (!iframe || !readyRef.current) return;
+
     if (isPlaying) {
-      player.pauseVideo();
+      ytCommand(iframe, "pauseVideo");
     } else {
-      player.playVideo();
+      ytCommand(iframe, "playVideo");
     }
   }, [isPlaying]);
 
-  const handleSeek = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const time = parseFloat(e.target.value);
-    playerRef.current?.seekTo(time, true);
-    setProgress(time);
-  }, []);
+  const handleSeek = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const time = parseFloat(e.target.value);
+      const iframe = iframeRef.current;
+      if (iframe && readyRef.current) {
+        ytCommand(iframe, "seekTo", [time, true]);
+      }
+      setProgress(time);
+    },
+    []
+  );
 
   const handleVolume = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const vol = parseInt(e.target.value);
       setVolume(vol);
       setIsMuted(vol === 0);
-      playerRef.current?.setVolume(vol);
+      const iframe = iframeRef.current;
+      if (iframe && readyRef.current) {
+        ytCommand(iframe, "setVolume", [vol]);
+        if (vol > 0) ytCommand(iframe, "unMute");
+      }
     },
     []
   );
 
   const toggleMute = useCallback(() => {
-    const player = playerRef.current;
-    if (!player) return;
+    const iframe = iframeRef.current;
+    if (!iframe || !readyRef.current) return;
+
     if (isMuted) {
-      player.setVolume(volume || 80);
+      ytCommand(iframe, "setVolume", [volume || 80]);
+      ytCommand(iframe, "unMute");
       setIsMuted(false);
     } else {
-      player.setVolume(0);
+      ytCommand(iframe, "mute");
       setIsMuted(true);
     }
   }, [isMuted, volume]);
@@ -333,12 +302,21 @@ export function MusicPlayer() {
 
   return (
     <>
-      {/* Hidden YouTube iframe — in viewport but invisible (YouTube blocks audio from off-screen) */}
+      {/* Hidden YouTube iframe — always mounted, in viewport */}
       <div
-        className="fixed bottom-0 left-0 z-[-1] opacity-0 pointer-events-none overflow-hidden"
-        style={{ width: 200, height: 200 }}
+        className="fixed bottom-0 left-0 z-[-1] opacity-0 pointer-events-none"
+        style={{ width: 1, height: 1, overflow: "hidden" }}
       >
-        <div id="yt-player" />
+        <iframe
+          ref={iframeRef}
+          width="200"
+          height="200"
+          src={`https://www.youtube.com/embed/${playlist[0].youtubeId}?enablejsapi=1&controls=0&disablekb=1&fs=0&iv_load_policy=3&modestbranding=1&rel=0&showinfo=0&origin=${typeof window !== "undefined" ? window.location.origin : ""}`}
+          allow="autoplay; encrypted-media"
+          referrerPolicy="strict-origin-when-cross-origin"
+          title="YouTube Player"
+          style={{ border: "none" }}
+        />
       </div>
 
       {/* Toggle button — floating */}
@@ -397,7 +375,7 @@ export function MusicPlayer() {
                   }`}
                 />
                 <span className="text-[10px] font-medium text-white/40 uppercase tracking-[0.2em]">
-                  {isBuffering ? "Loading..." : isPlaying ? "Playing" : "Paused"}
+                  {isPlaying ? "Playing" : "Paused"}
                 </span>
               </div>
             )}
@@ -477,7 +455,7 @@ export function MusicPlayer() {
                   </div>
                 )}
               </div>
-              <div className="max-h-72 overflow-y-auto space-y-1 scrollbar-thin">
+              <div className="max-h-72 overflow-y-auto space-y-1">
                 {searchResults.length > 0
                   ? searchResults.map((result) => (
                       <button
@@ -539,7 +517,6 @@ export function MusicPlayer() {
                       !isPlaying && "vinyl-spin-paused"
                     }`}
                   >
-                    {/* Album art thumbnail */}
                     <img
                       src={currentTrack.coverUrl}
                       alt={currentTrack.title}
@@ -548,9 +525,7 @@ export function MusicPlayer() {
                         (e.target as HTMLImageElement).style.display = "none";
                       }}
                     />
-                    {/* Center hole */}
                     <div className="absolute w-4 h-4 rounded-full bg-[#1a1a1a] border-2 border-white/10" />
-                    {/* Grooves */}
                     <div className="absolute inset-[15%] rounded-full border border-white/[0.03]" />
                     <div className="absolute inset-[25%] rounded-full border border-white/[0.03]" />
                     <div className="absolute inset-[35%] rounded-full border border-white/[0.03]" />
@@ -612,7 +587,6 @@ export function MusicPlayer() {
                       onChange={handleSeek}
                       className="absolute inset-0 w-full opacity-0 cursor-pointer"
                     />
-                    {/* Scrub handle */}
                     <div
                       className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full shadow-lg opacity-0 group-hover:opacity-100 transition-opacity"
                       style={{ left: `calc(${progressPercent}% - 6px)` }}
@@ -646,9 +620,7 @@ export function MusicPlayer() {
                   className="relative p-4 rounded-2xl bg-gradient-to-br from-brand to-purple-500 text-white shadow-lg shadow-brand/30 transition-all hover:scale-105 active:scale-95 hover:shadow-xl hover:shadow-brand/40"
                   aria-label={isPlaying ? "Pause" : "Play"}
                 >
-                  {isBuffering ? (
-                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  ) : isPlaying ? (
+                  {isPlaying ? (
                     <Pause className="h-5 w-5" />
                   ) : (
                     <Play className="h-5 w-5 ml-0.5" />
@@ -697,16 +669,14 @@ export function MusicPlayer() {
 
               {/* Playlist */}
               {showPlaylist && (
-                <div className="border-t border-white/[0.04] max-h-56 overflow-y-auto scrollbar-thin fade-in-up">
+                <div className="border-t border-white/[0.04] max-h-56 overflow-y-auto fade-in-up">
                   {playlist.map((track, i) => (
                     <button
                       key={track.id}
                       onClick={() => playTrack(track, i)}
                       {...cursorHandlers}
                       className={`w-full flex items-center gap-3 px-5 py-3 text-left transition-all hover:bg-white/[0.03] ${
-                        currentTrack.id === track.id
-                          ? "bg-brand/[0.06]"
-                          : ""
+                        currentTrack.id === track.id ? "bg-brand/[0.06]" : ""
                       }`}
                     >
                       <div className="w-9 h-9 rounded-lg overflow-hidden flex-shrink-0 bg-white/5">
