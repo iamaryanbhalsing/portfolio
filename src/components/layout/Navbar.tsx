@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Menu, X } from "lucide-react";
 import { ThemeToggle } from "@/components/ui/ThemeProvider";
 import { AccentPicker } from "@/components/ui/AccentPicker";
+import { CursorPicker } from "@/components/cursor/CursorPicker";
 
 const navLinks = [
   { href: "#hero", label: "Home" },
@@ -86,6 +87,7 @@ export function Navbar() {
           </ul>
 
           <div className="flex items-center gap-2">
+            <CursorPicker />
             <AccentPicker />
             <ThemeToggle />
             <Button
