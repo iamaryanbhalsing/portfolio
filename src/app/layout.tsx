@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
+import Script from "next/script";
 import "./globals.css";
 import "@/styles/cursor.css";
 import { LenisProvider } from "@/components/ui/LenisProvider";
@@ -105,12 +106,6 @@ export default function RootLayout({
       lang="en"
       className={`${inter.variable} ${headingFont.variable} h-full antialiased`}
     >
-      <head>
-        <script
-          type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
-        />
-      </head>
       <body className="min-h-full flex flex-col bg-background text-foreground">
         <ServiceWorkerRegistration />
         <ThemeProvider>
@@ -123,6 +118,11 @@ export default function RootLayout({
             </CursorProvider>
           </LenisProvider>
         </ThemeProvider>
+        <Script
+          id="jsonld"
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        />
       </body>
     </html>
   );
