@@ -13,9 +13,9 @@ export interface Track {
 
 export const playlist: Track[] = [
   {
-    id: "blinding-lights",
-    title: "Blinding Lights",
-    artist: "The Weeknd",
+    id: "Aryan's",
+    title: " Playlist",
+    artist: "The Leo",
     bpm: 171,
     description: "80s-inspired synthwave hit",
     videoId: "q6e_b0NERCA",
