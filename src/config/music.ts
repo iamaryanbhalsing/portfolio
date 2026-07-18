@@ -13,8 +13,8 @@ export interface Track {
 
 export const playlist: Track[] = [
   {
-    id: "Aryan's",
-    title: " Playlist",
+    id: "1337x",
+    title: "Aryan's Playlist",
     artist: "The Leo",
     bpm: 171,
     description: "80s-inspired synthwave hit",
